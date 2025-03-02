@@ -217,7 +217,8 @@ Resources:
           sudo apt-get install python3-flask -y
           sudo apt-get install mysql-server -y
           sudo apt-get install python3-pymysql -y
-          git clone https://github.com/Training-demo/aws-code-main 
+          git clone https://github.com/hiteshchauhan89/aws-code-main.git
+          
       Tags:
         - Key: Name
           Value: Flask-Point-Ec2
