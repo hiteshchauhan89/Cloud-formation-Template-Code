@@ -1,379 +1,265 @@
-AWSTemplateFormatVersion: 2010-09-09
-Description: CloudFormation Template for SNS VPC Endpoints Tutorial
-Parameters:
-  KeyName:
-    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
-    Type: 'AWS::EC2::KeyPair::KeyName'
-    ConstraintDescription: must be the name of an existing EC2 KeyPair.
-  SSHLocation:
-    Description: The IP address range that can be used to SSH to the EC2 instance
-    Type: String
-    MinLength: '9'
-    MaxLength: '18'
-    Default: 0.0.0.0/0
-    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
-    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
-  EnvironmentName:
-    Description: Environment name for the application dev/staging/production
-    Type: String
-    AllowedValues:
-      - dev
-      - staging
-      - production
-      - employee_image
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template for VPC, EC2, S3, DynamoDB, S3 Event Notifications, and SNS."
 
-Mappings:
-  RegionMap:
-    us-east-1:
-      AMI: ami-04a81a99f5ec58529
-    us-east-2:
-      AMI: ami-0862be96e41dcbf74
+Parameters:
+  VpcCIDR:
+    Type: String
+    Default: "10.0.0.0/16"
+  
+  PublicSubnetCIDR:
+    Type: String
+    Default: "10.0.1.0/24"
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: "10.0.2.0/24"
+  
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: "10.0.3.0/24"
+  
+  PrivateSubnet3CIDR:
+    Type: String
+    Default: "10.0.4.0/24"
+
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: "Provide a valid AMI ID for your AWS region"
+
+  InstanceType:
+    Type: String
+    Default: "t2.micro"
+  
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: "Enter the name of an existing EC2 KeyPair"
 
 Resources:
-  VPC:
-    Type: 'AWS::EC2::VPC'
+
+  # VPC
+  MyVPC:
+    Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: '10.0.0.0/16'
+      CidrBlock: !Ref VpcCIDR
       EnableDnsSupport: true
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: Flask-Vpc-Point
-  PublicSubnet1:
-    Type: 'AWS::EC2::Subnet'
+          Value: EmployeeVPC
+
+  # Subnets
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref VPC
-      CidrBlock: '10.0.0.0/24'
-      AvailabilityZone: 'us-east-2a'
-      Tags:
-        - Key: Name
-          Value: PublicSubnet1
-  PublicSubnet2: 
-    Type: 'AWS::EC2::Subnet'
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: '10.0.1.0/24'
-      AvailabilityZone: 'us-east-2b'
-      Tags:
-        - Key: Name
-          Value: PublicSubnet2
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref PublicSubnetCIDR
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
   PrivateSubnet1:
-    Type: 'AWS::EC2::Subnet'
+    Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref VPC
-      CidrBlock: '10.0.2.0/24'
-      AvailabilityZone: 'us-east-2c'
-      Tags:
-        - Key: Name
-          Value: PrivateSubnet1
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      AvailabilityZone: !Select [1, !GetAZs ""]
+
   PrivateSubnet2:
-    Type: 'AWS::EC2::Subnet'
+    Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref VPC
-      CidrBlock: '10.0.3.0/24'
-      AvailabilityZone: 'us-east-2a'
-      Tags:
-        - Key: Name
-          Value: PrivateSubnet2
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      AvailabilityZone: !Select [2, !GetAZs ""]
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref PrivateSubnet3CIDR
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  # Internet Gateway & Route Table
   InternetGateway:
-    Type: 'AWS::EC2::InternetGateway'
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      Tags:
-        - Key: Name
-          Value: Flask-Internet-Gateway
-  VPCGatewayAttachment:
-    Type: 'AWS::EC2::VPCGatewayAttachment'
-    Properties:
-      VpcId: !Ref VPC
+      VpcId: !Ref MyVPC
       InternetGatewayId: !Ref InternetGateway
-  PublicRouteTable1:
-    Type: 'AWS::EC2::RouteTable'
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
     Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: PublicRouteTable1
-  PublicRouteTable2:
-    Type: 'AWS::EC2::RouteTable'
+      VpcId: !Ref MyVPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
     Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: PublicRouteTable2
-  PrivateRouteTable1:
-    Type: 'AWS::EC2::RouteTable'
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: PrivateRouteTable1
-  PrivateRouteTable2:
-    Type: 'AWS::EC2::RouteTable'
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: PrivateRouteTable2
-  PublicSubnet1RouteTableAssociation:
-    Type: 'AWS::EC2::SubnetRouteTableAssociation'
-    Properties:
-      SubnetId: !Ref PublicSubnet1
-      RouteTableId: !Ref PublicRouteTable1
-  PublicSubnet2RouteTableAssociation:
-    Type: 'AWS::EC2::SubnetRouteTableAssociation'
-    Properties:
-      SubnetId: !Ref PublicSubnet2
-      RouteTableId: !Ref PublicRouteTable2
-  PrivateSubnet1RouteTableAssociation:
-    Type: 'AWS::EC2::SubnetRouteTableAssociation'
-    Properties:
-      SubnetId: !Ref PrivateSubnet1
-      RouteTableId: !Ref PrivateRouteTable1
-  PrivateSubnet2RouteTableAssociation:
-    Type: 'AWS::EC2::SubnetRouteTableAssociation'
-    Properties:
-      SubnetId: !Ref PrivateSubnet2
-      RouteTableId: !Ref PrivateRouteTable2
-  PublicInternetGatewayRoute1:
-    Type: 'AWS::EC2::Route'
-    Properties:
-      RouteTableId: !Ref PublicRouteTable1
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
       GatewayId: !Ref InternetGateway
-      DestinationCidrBlock: 0.0.0.0/0
-  PublicInternetGatewayRoute2:
-    Type: 'AWS::EC2::Route'
+
+  # Security Group
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      RouteTableId: !Ref PublicRouteTable2
-      GatewayId: !Ref InternetGateway
-      DestinationCidrBlock: 0.0.0.0/0
-  # NAT GATEWAY
-  NATGateway:
-   Type: 'AWS::EC2::NatGateway'
-   Properties:
-      AllocationId: !GetAtt NATGatewayEIP.AllocationId
-      SubnetId: !Ref PublicSubnet1
-      Tags:
-      - Key: Name
-        Value: production
-  NATGatewayEIP:
-   Type: 'AWS::EC2::EIP'
-   Properties:
-      Domain: vpc
-  RouteNATGateway1:
-   Type: 'AWS::EC2::Route'
-   Properties:
-      RouteTableId: !Ref PrivateRouteTable1
-      DestinationCidrBlock: '0.0.0.0/0'
-      NatGatewayId: !Ref NATGateway
-  RouteNATGateway2:
-   Type: 'AWS::EC2::Route'
-   Properties:
-      RouteTableId: !Ref PrivateRouteTable2
-      DestinationCidrBlock: '0.0.0.0/0'
-      NatGatewayId: !Ref NATGateway
-  SecurityGroup:
-    Type: 'AWS::EC2::SecurityGroup'
-    Properties:
-      GroupName: Flask-Point-SecurityGroup
-      GroupDescription: Security Group for Flask-Point
-      VpcId: !Ref VPC
+      GroupDescription: "Allow SSH and HTTP access"
+      VpcId: !Ref MyVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: !Ref SSHLocation
-        - IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
-          CidrIp: !Ref SSHLocation
+          CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: !Ref SSHLocation
-  Ec2Instance:
-    Type: 'AWS::EC2::Instance'
+          CidrIp: 0.0.0.0/0
+
+  # Network ACL
+  PublicSubnetACL:
+    Type: AWS::EC2::NetworkAcl
     Properties:
-      ImageId: !FindInMap
-        - RegionMap
-        - !Ref 'AWS::Region'
-        - AMI
-      InstanceType: t2.micro
+      VpcId: !Ref MyVPC
+
+  AllowInboundHTTP:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicSubnetACL
+      RuleNumber: 100
+      Protocol: 6
+      RuleAction: allow
+      Egress: false
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: 80
+        To: 80
+
+  # EC2 Instance
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref ImageId
       KeyName: !Ref KeyName
-      NetworkInterfaces:
-        - AssociatePublicIpAddress: true
-          DeviceIndex: '0'
-          GroupSet:
-            - !Ref SecurityGroup
-          SubnetId: !Ref PrivateSubnet1
-      IamInstanceProfile: !Ref EC2InstanceProfile
-      Tenancy: default
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      Tags:
+        - Key: Name
+          Value: EmployeeAppInstance
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
-          # Pre-Bootstrap Configuration
-          sudo apt-get update -y
-          sudo apt-get install python3 -y
-          sudo apt-get install python3-boto3 -y
-          sudo apt-get install python3-flask -y
-          sudo apt-get install mysql-server -y
-          sudo apt-get install python3-pymysql -y
+          sudo yum update -y
+          sudo yum install -y python3 python3-pip git mysql
+          sudo pip3 install flask boto3 pymysql
+          cd /home/ec2-user
           git clone https://github.com/hiteshchauhan89/aws-code-main.git
-          
-      Tags:
-        - Key: Name
-          Value: Flask-Point-Ec2
-  RDSInstance:
-    Type: 'AWS::EC2::Instance'
+          cd aws-code-main
+          nohup python3 EmpApp.py > app.log 2>&1 &
+
+  # S3 Bucket for Static Website Hosting
+  EmployeeS3Bucket:
+    Type: AWS::S3::Bucket
     Properties:
-      ImageId: !FindInMap
-        - RegionMap
-        - !Ref 'AWS::Region'
-        - AMI
-      InstanceType: t2.micro
-      KeyName: !Ref KeyName
-      NetworkInterfaces:
-        - AssociatePublicIpAddress: true
-          DeviceIndex: '0'
-          GroupSet:
-            - !Ref SecurityGroup
-          SubnetId: !Ref PrivateSubnet2
-      IamInstanceProfile: !Ref EC2InstanceProfile
-      Tags:
-        - Key: Name
-          Value: Flask-Point-RDS
-      
-  EC2InstanceProfile:
-    Type: 'AWS::IAM::InstanceProfile'
+      BucketName: !Sub "employee-static-website-${AWS::AccountId}"
+      WebsiteConfiguration:
+        IndexDocument: "index.html"
+        ErrorDocument: "error.html"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  # DynamoDB Table
+  EmployeeDynamoDBTable:
+    Type: AWS::DynamoDB::Table
     Properties:
-      Roles:
-        - !Ref EC2InstanceRole
-      InstanceProfileName: EC2InstanceProfile
-  EC2InstanceRole:
-    Type: 'AWS::IAM::Role'
+      TableName: "EmployeeData"
+      AttributeDefinitions:
+        - AttributeName: "EmployeeID"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "EmployeeID"
+          KeyType: "HASH"
+      BillingMode: PAY_PER_REQUEST
+
+  # S3 Event Notifications (Triggers SNS)
+  S3EventNotification:
+    Type: AWS::Lambda::Permission
     Properties:
-      RoleName: FP-EC2InstanceRole
+      Action: "lambda:InvokeFunction"
+      FunctionName: !Ref S3LambdaFunction
+      Principal: "s3.amazonaws.com"
+      SourceArn: !GetAtt EmployeeS3Bucket.Arn
+
+  # Lambda Function for S3 Event
+  S3LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "S3EventProcessor"
+      Runtime: "python3.8"
+      Handler: "index.lambda_handler"
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              print("S3 Event Received:", json.dumps(event))
+              return {"statusCode": 200, "body": "Event Processed"}
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
       AssumeRolePolicyDocument:
-        Version: 2012-10-17
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
-              Service: ec2.amazonaws.com
-            Action: 'sts:AssumeRole'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AmazonRDSFullAccess'
-        - 'arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess'
-        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
-  # RDS Subnet Group
-  RDSDBSubnetGroup:
-    Type: "AWS::RDS::DBSubnetGroup"
-    Properties:
-      DBSubnetGroupDescription: "description"
-      DBSubnetGroupName: "RDS_DB_PrivSubnet"
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-  
-    # KMS RDS encryption key
-  rdsKey:
-      Type: AWS::KMS::Key
-      Properties:
-        KeyPolicy:
-          Version: 2012-10-17
-          Id: key-rds
-          Statement:
-            - Sid: Enable IAM User Permissions
-              Effect: Allow
-              Principal:
-                AWS: !Join
-                  - ''
-                  - - 'arn:aws:iam::'
-                    - !Ref 'AWS::AccountId'
-                    - ':root'
-              Action: 'kms:*'
-              Resource: '*'
-  rdsAlias:
-      Type: AWS::KMS::Alias
-      Properties:
-        AliasName: alias/rds
-        TargetKeyId:
-          Ref: rdsKey
-  # RDS MySQL database configuration
-  MySQLDatabase:
-      Type: 'AWS::RDS::DBInstance'
-      Properties:
-        Engine: MySQL
-        DBName: "RDS"
-        StorageEncrypted: true
-        KmsKeyId: !Ref rdsKey
-        MasterUsername: 'dbuser'
-        MasterUserPassword: 'wasimakram0028'
-        DBInstanceClass: db.t3.micro
-        AllocatedStorage: '5'
-# To add a specific storage type add "StorageType: gp2, io1, or standard" for io1 you must also declare "Iops: with an integer equal or greater then 1000"
-# gp2 is General Purpose (SSD), io1 is provisioned IOPS, and standard is magnetic
-        DBSubnetGroupName: !Ref RDSDBSubnetGroup
-        VPCSecurityGroups:
-          - Ref: SecurityGroup
-   # Target Group
-  EC2TargetGroup:
-      Type: AWS::ElasticLoadBalancingV2::TargetGroup
-      Properties:
-        HealthCheckIntervalSeconds: 30
-        HealthCheckProtocol: HTTP
-        HealthCheckTimeoutSeconds: 15
-        HealthyThresholdCount: 5
-        Matcher:
-          HttpCode: '200'
-        Name: EC2TargetGroup
-        Port: 80
-        Protocol: HTTP
-        TargetGroupAttributes:
-        - Key: deregistration_delay.timeout_seconds
-          Value: '20'
-        Targets:
-        - Id:
-            Ref: Ec2Instance
-          Port: 80
-        UnhealthyThresholdCount: 3
-        VpcId: !Ref 'VPC'
-        Tags:
-        - Key: Name
-          Value: EC2TargetGroup
-        - Key: Port
-          Value: 80
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "LambdaS3AccessPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                Resource: !Sub "${EmployeeS3Bucket.Arn}/*"
 
-    #ELB (ALB)
-  ALBListener:
-      Type: AWS::ElasticLoadBalancingV2::Listener
-      Properties:
-        DefaultActions:
-          - Type: forward
-            TargetGroupArn:
-              Ref: EC2TargetGroup
-        LoadBalancerArn:
-            Ref: ApplicationLoadBalancer
-        Port: 80
-        Protocol: HTTP
-  ApplicationLoadBalancer:
-      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-      Properties:
-        Scheme: internet-facing # or internal
-        Subnets:
-        - Ref: PublicSubnet1
-        - Ref: PublicSubnet2
-        SecurityGroups: 
-        - Ref: SecurityGroup
-  DynamoDBTable:
-    Type: "AWS::DynamoDB::Table"
+  # SNS Topic
+  EmployeeSNSTopic:
+    Type: AWS::SNS::Topic
     Properties:
-      TableName: !Sub "${EnvironmentName}_table"
-      AttributeDefinitions:
-        - AttributeName: "empid"
-          AttributeType: "N"
-      KeySchema:
-        - AttributeName: "id"
-          KeyType: "HASH"
-      ProvisionedThroughput:
-        ReadCapacityUnits: 5
-        WriteCapacityUnits: 5
-  
+      TopicName: "EmployeeNotifications"
+
+  EmployeeSNSTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref EmployeeSNSTopic
+      Protocol: email
+      Endpoint: "your-email@example.com"
+
+Outputs:
+  VpcId:
+    Value: !Ref MyVPC
+
+  PublicSubnetId:
+    Value: !Ref PublicSubnet
+
+  EC2InstanceId:
+    Value: !Ref EC2Instance
+
+  EmployeeS3BucketName:
+    Value: !Ref EmployeeS3Bucket
+
+  DynamoDBTableName:
+    Value: !Ref EmployeeDynamoDBTable
+
+  SNSTopicARN:
+    Value: !Ref EmployeeSNSTopic
